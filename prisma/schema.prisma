@@ -1,0 +1,150 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// CAMPAIGNS — top-level grouping
+// ─────────────────────────────────────────────
+model Campaign {
+  id              String         @id @default(cuid())
+  name            String
+  service         ServiceType
+  location        String
+  dailyBudget     Float
+  offer           OfferType
+  status          CampaignStatus @default(DRAFT)
+  metaCampaignId  String?
+  ads             Ad[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// ADS — individual A/B variants within a campaign
+// ─────────────────────────────────────────────
+model Ad {
+  id              String      @id @default(cuid())
+  campaignId      String
+  campaign        Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  variantLabel    String
+
+  // Copy fields
+  headline        String
+  primaryText     String      @db.Text
+  description     String
+  ctaButton       CTAType     @default(LEARN_MORE)
+
+  // Image fields
+  imagePrompt     String      @db.Text
+  imageUrl        String?
+  beforeAfterUrl  String?
+  useBeforeAfter  Boolean     @default(false)
+
+  // Workflow
+  status          AdStatus    @default(DRAFT)
+  metaAdId        String?
+  metaAdSetId     String?
+
+  performance     AdPerformance?
+  auditReports    AuditReport[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AD PERFORMANCE — synced from Meta Graph API
+// ─────────────────────────────────────────────
+model AdPerformance {
+  id              String    @id @default(cuid())
+  adId            String    @unique
+  ad              Ad        @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  spend           Float     @default(0)
+  impressions     Int       @default(0)
+  clicks          Int       @default(0)
+  leads           Int       @default(0)
+  cpc             Float     @default(0)
+  cpl             Float     @default(0)
+  ctr             Float     @default(0)
+  roas            Float     @default(0)
+
+  lastSyncedAt    DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AUDIT REPORTS — Claude-generated performance analysis
+// ─────────────────────────────────────────────
+model AuditReport {
+  id              String    @id @default(cuid())
+  adId            String
+  ad              Ad        @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  reportMarkdown  String    @db.Text
+  recommendation  String
+  confidenceScore Int
+
+  createdAt       DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+enum ServiceType {
+  KITCHEN_REMODEL
+  BATHROOM_REMODEL
+  WHOLE_HOME_RENOVATION
+  ROOM_ADDITION
+  BASEMENT_FINISHING
+  ROOFING
+  SIDING
+  WINDOWS_DOORS
+  DECK_PATIO
+  GARAGE_CONVERSION
+  ADU_CONSTRUCTION
+  COMMERCIAL_FITOUT
+}
+
+enum OfferType {
+  FREE_ESTIMATE
+  FREE_DESIGN_CONSULTATION
+  FINANCING_AVAILABLE
+  LIMITED_SLOTS
+  SEASONAL_DISCOUNT
+  FREE_3D_RENDER
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum AdStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHING
+  LIVE
+  PAUSED
+  REJECTED
+}
+
+enum CTAType {
+  LEARN_MORE
+  GET_QUOTE
+  CONTACT_US
+  BOOK_NOW
+  GET_OFFER
+}
