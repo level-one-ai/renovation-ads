@@ -140,7 +140,7 @@ export function AnalyticsClient() {
       if (!map.has(a.campaignId)) map.set(a.campaignId, a.campaign);
       return map;
     }, new Map<string, AdRow["campaign"]>())
-  ).map(([id, c]) => ({ id, ...c }));
+  ).map(([campaignId, c]) => ({ id: campaignId, ...c }));
 
   const filtered = ads.filter((a) => a.campaignId === selectedCampaign);
   const chartData: VariantPerf[] = filtered.map((a) => ({
