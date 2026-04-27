@@ -13,6 +13,9 @@ const PatchSchema = z.object({
     .optional(),
   beforeAfterUrl: z.string().url().nullable().optional(),
   useBeforeAfter: z.boolean().optional(),
+  videoUrl: z.string().url().nullable().optional(),
+  useVideo: z.boolean().optional(),
+  creativeType: z.enum(["IMAGE", "VIDEO"]).optional(),
   status: z
     .enum(["DRAFT", "PENDING_APPROVAL", "APPROVED", "PUBLISHING", "LIVE", "PAUSED", "REJECTED"])
     .optional(),

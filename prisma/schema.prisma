@@ -48,6 +48,12 @@ model Ad {
   beforeAfterUrl  String?
   useBeforeAfter  Boolean     @default(false)
 
+  // Video fields
+  videoUrl        String?
+  metaVideoId     String?
+  useVideo        Boolean     @default(false)
+  creativeType    CreativeType @default(IMAGE)
+
   // Workflow
   status          AdStatus    @default(DRAFT)
   metaAdId        String?
@@ -139,6 +145,11 @@ enum AdStatus {
   LIVE
   PAUSED
   REJECTED
+}
+
+enum CreativeType {
+  IMAGE
+  VIDEO
 }
 
 enum CTAType {

@@ -25,6 +25,8 @@ interface AdRow {
   imageUrl: string | null;
   beforeAfterUrl: string | null;
   useBeforeAfter: boolean;
+  videoUrl: string | null;
+  useVideo: boolean;
   status: string;
   campaign: {
     id: string;
@@ -216,6 +218,11 @@ export function DraftsClient() {
                   ? active.beforeAfterUrl
                   : active.imageUrl
               }
+              videoUrl={active.videoUrl}
+              useVideo={active.useVideo}
+              variantLabel={active.variantLabel}
+              service={active.campaign.service}
+              location={active.campaign.location}
             />
           </TabsContent>
 

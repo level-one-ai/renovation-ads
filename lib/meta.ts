@@ -256,3 +256,61 @@ export async function fetchAdInsights(metaAdId: string): Promise<MetaInsights> {
     roas: Number(roasArr[0]?.value ?? 0),
   };
 }
+
+// ─────────────────────────────────────────────────────────────
+// Video ads
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Upload a video to Meta's Ad Video Library.
+ * Meta requires the video to be fetched from a public URL.
+ */
+export async function uploadMetaAdVideo(
+  videoUrl: string,
+  title: string
+): Promise<{ id: string }> {
+  const body = {
+    file_url: videoUrl,
+    title,
+  };
+
+  return metaFetch<{ id: string }>(`/${adAccount()}/advideos`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Create a video ad creative using a Meta video ID.
+ */
+export async function createMetaVideoAdCreative(params: {
+  name: string;
+  metaVideoId: string;
+  headline: string;
+  primaryText: string;
+  description: string;
+  ctaType: string;
+  destinationUrl: string;
+}): Promise<{ id: string }> {
+  const objectStorySpec = {
+    page_id: pageId(),
+    video_data: {
+      video_id: params.metaVideoId,
+      message: params.primaryText,
+      title: params.headline,
+      link_description: params.description,
+      call_to_action: {
+        type: params.ctaType,
+        value: { link: params.destinationUrl },
+      },
+    },
+  };
+
+  return metaFetch<{ id: string }>(`/${adAccount()}/adcreatives`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: params.name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+    }),
+  });
+}

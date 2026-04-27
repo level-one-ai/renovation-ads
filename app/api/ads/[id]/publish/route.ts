@@ -4,7 +4,9 @@ import {
   createMetaCampaign,
   createMetaAdSet,
   uploadMetaAdImage,
+  uploadMetaAdVideo,
   createMetaAdCreative,
+  createMetaVideoAdCreative,
   createMetaAd,
 } from "@/lib/meta";
 
@@ -24,21 +26,27 @@ export async function POST(
 
   if (!ad) return NextResponse.json({ error: "Ad not found" }, { status: 404 });
 
-  // Determine which image URL to use
-  const finalImageUrl =
-    ad.useBeforeAfter && ad.beforeAfterUrl ? ad.beforeAfterUrl : ad.imageUrl;
-  if (!finalImageUrl) {
+  // Determine creative type and media URL
+  const isVideoAd = ad.useVideo && ad.videoUrl;
+  const finalImageUrl = !isVideoAd
+    ? (ad.useBeforeAfter && ad.beforeAfterUrl ? ad.beforeAfterUrl : ad.imageUrl)
+    : null;
+
+  if (!isVideoAd && !finalImageUrl) {
     return NextResponse.json(
       { error: "No image set on this ad. Generate or upload one first." },
       { status: 400 }
     );
   }
-  if (finalImageUrl.startsWith("data:")) {
+  if (isVideoAd && !ad.videoUrl) {
     return NextResponse.json(
-      {
-        error:
-          "Image is a data URL — Meta requires a hosted URL. Configure Vercel Blob or upload a real image.",
-      },
+      { error: "No video set on this ad. Upload a video first." },
+      { status: 400 }
+    );
+  }
+  if (finalImageUrl && finalImageUrl.startsWith("data:")) {
+    return NextResponse.json(
+      { error: "Image is a data URL — Meta requires a hosted URL. Configure Vercel Blob or upload a real image." },
       { status: 400 }
     );
   }
@@ -69,19 +77,35 @@ export async function POST(
       pixelId: process.env.META_PIXEL_ID,
     });
 
-    // 3. Upload image, get hash
-    const { hash } = await uploadMetaAdImage(finalImageUrl);
-
-    // 4. Create creative
-    const creative = await createMetaAdCreative({
-      name: `${ad.campaign.name} — ${ad.variantLabel} creative`,
-      imageHash: hash,
-      headline: ad.headline,
-      primaryText: ad.primaryText,
-      description: ad.description,
-      ctaType: ad.ctaButton,
-      destinationUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
-    });
+    // 3. Upload image or video, create creative
+    let creative: { id: string };
+    if (isVideoAd && ad.videoUrl) {
+      // Upload video to Meta then create video creative
+      const metaVideo = await uploadMetaAdVideo(ad.videoUrl, `${ad.campaign.name} ${ad.variantLabel}`);
+      creative = await createMetaVideoAdCreative({
+        name: `${ad.campaign.name} — ${ad.variantLabel} creative`,
+        metaVideoId: metaVideo.id,
+        headline: ad.headline,
+        primaryText: ad.primaryText,
+        description: ad.description,
+        ctaType: ad.ctaButton,
+        destinationUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
+      });
+      // Save the Meta video ID
+      await prisma.ad.update({ where: { id }, data: { metaVideoId: metaVideo.id } });
+    } else {
+      // Image ad path
+      const { hash } = await uploadMetaAdImage(finalImageUrl!);
+      creative = await createMetaAdCreative({
+        name: `${ad.campaign.name} — ${ad.variantLabel} creative`,
+        imageHash: hash,
+        headline: ad.headline,
+        primaryText: ad.primaryText,
+        description: ad.description,
+        ctaType: ad.ctaButton,
+        destinationUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
+      });
+    }
 
     // 5. Create ad
     const metaAd = await createMetaAd({
