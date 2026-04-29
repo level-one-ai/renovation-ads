@@ -21,6 +21,10 @@ model Campaign {
   offer           OfferType
   status          CampaignStatus @default(DRAFT)
   metaCampaignId  String?
+  destinationUrl  String  @default("")
+  geoTargeting    Json?   // { locations: [...], radiusMiles: number }
+  audience        Json?   // { ageMin, ageMax, gender }
+  publishActive   Boolean @default(false)
   ads             Ad[]
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

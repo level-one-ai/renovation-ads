@@ -33,6 +33,7 @@ interface AdRow {
     name: string;
     location: string;
     service: string;
+    destinationUrl: string;
   };
 }
 
@@ -223,6 +224,7 @@ export function DraftsClient() {
               variantLabel={active.variantLabel}
               service={active.campaign.service}
               location={active.campaign.location}
+              destinationUrl={active.campaign.destinationUrl}
             />
           </TabsContent>
 

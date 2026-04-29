@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-  createMetaCampaign,
-  createMetaAdSet,
-  uploadMetaAdImage,
-  uploadMetaAdVideo,
-  createMetaAdCreative,
-  createMetaVideoAdCreative,
-  createMetaAd,
+  createMetaCampaign, createMetaAdSet, uploadMetaAdImage,
+  uploadMetaAdVideo, createMetaAdCreative, createMetaVideoAdCreative, createMetaAd,
 } from "@/lib/meta";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function POST(
-  _req: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function POST(_req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
 
   const ad = await prisma.ad.findUnique({
@@ -26,123 +18,99 @@ export async function POST(
 
   if (!ad) return NextResponse.json({ error: "Ad not found" }, { status: 404 });
 
-  // Determine creative type and media URL
   const isVideoAd = ad.useVideo && ad.videoUrl;
   const finalImageUrl = !isVideoAd
     ? (ad.useBeforeAfter && ad.beforeAfterUrl ? ad.beforeAfterUrl : ad.imageUrl)
     : null;
 
-  if (!isVideoAd && !finalImageUrl) {
-    return NextResponse.json(
-      { error: "No image set on this ad. Generate or upload one first." },
-      { status: 400 }
-    );
-  }
-  if (isVideoAd && !ad.videoUrl) {
-    return NextResponse.json(
-      { error: "No video set on this ad. Upload a video first." },
-      { status: 400 }
-    );
-  }
-  if (finalImageUrl && finalImageUrl.startsWith("data:")) {
-    return NextResponse.json(
-      { error: "Image is a data URL — Meta requires a hosted URL. Configure Vercel Blob or upload a real image." },
-      { status: 400 }
-    );
-  }
+  if (!isVideoAd && !finalImageUrl)
+    return NextResponse.json({ error: "No image set. Generate or upload one first." }, { status: 400 });
+  if (isVideoAd && !ad.videoUrl)
+    return NextResponse.json({ error: "No video set. Upload a video first." }, { status: 400 });
+  if (finalImageUrl?.startsWith("data:"))
+    return NextResponse.json({ error: "Image is a data URL — Meta requires a hosted URL. Configure Vercel Blob." }, { status: 400 });
 
-  await prisma.ad.update({
-    where: { id },
-    data: { status: "PUBLISHING" },
-  });
+  await prisma.ad.update({ where: { id }, data: { status: "PUBLISHING" } });
+
+  // Read campaign-level settings
+  const campaign = ad.campaign;
+  const geoTargeting = campaign.geoTargeting as {
+    locations: Array<{ metaKey: string; metaName: string; metaCountryCode: string; metaRegionId?: string }>;
+    radiusMiles: number;
+  } | null;
+  const audience = campaign.audience as {
+    ageMin: number; ageMax: number; gender: string;
+  } | null;
+  const destinationUrl = campaign.destinationUrl || process.env.NEXT_PUBLIC_APP_URL || "https://example.com";
+  const publishStatus = campaign.publishActive ? "ACTIVE" : "PAUSED";
 
   try {
-    // 1. Create Meta campaign if not exists for this internal campaign
-    let metaCampaignId = ad.campaign.metaCampaignId;
+    // 1. Create or reuse Meta campaign
+    let metaCampaignId = campaign.metaCampaignId;
     if (!metaCampaignId) {
-      const created = await createMetaCampaign({ name: ad.campaign.name });
+      const created = await createMetaCampaign({ name: campaign.name, status: publishStatus });
       metaCampaignId = created.id;
-      await prisma.campaign.update({
-        where: { id: ad.campaign.id },
-        data: { metaCampaignId },
-      });
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { metaCampaignId } });
     }
 
-    // 2. Create ad set (one per ad variant for clean A/B isolation)
+    // 2. Create ad set with full targeting
     const adSet = await createMetaAdSet({
-      name: `${ad.campaign.name} — ${ad.variantLabel}`,
+      name: `${campaign.name} — ${ad.variantLabel}`,
       campaignId: metaCampaignId,
-      dailyBudgetUsd: ad.campaign.dailyBudget,
-      location: ad.campaign.location,
+      dailyBudgetUsd: campaign.dailyBudget,
+      location: campaign.location,
+      geoTargeting: geoTargeting ?? undefined,
+      audience: audience ?? undefined,
       pixelId: process.env.META_PIXEL_ID,
+      status: publishStatus,
     });
 
-    // 3. Upload image or video, create creative
+    // 3. Upload creative + create Meta ad
     let creative: { id: string };
     if (isVideoAd && ad.videoUrl) {
-      // Upload video to Meta then create video creative
-      const metaVideo = await uploadMetaAdVideo(ad.videoUrl, `${ad.campaign.name} ${ad.variantLabel}`);
+      const metaVideo = await uploadMetaAdVideo(ad.videoUrl, `${campaign.name} ${ad.variantLabel}`);
       creative = await createMetaVideoAdCreative({
-        name: `${ad.campaign.name} — ${ad.variantLabel} creative`,
+        name: `${campaign.name} — ${ad.variantLabel} creative`,
         metaVideoId: metaVideo.id,
         headline: ad.headline,
         primaryText: ad.primaryText,
         description: ad.description,
         ctaType: ad.ctaButton,
-        destinationUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
+        destinationUrl,
       });
-      // Save the Meta video ID
       await prisma.ad.update({ where: { id }, data: { metaVideoId: metaVideo.id } });
     } else {
-      // Image ad path
       const { hash } = await uploadMetaAdImage(finalImageUrl!);
       creative = await createMetaAdCreative({
-        name: `${ad.campaign.name} — ${ad.variantLabel} creative`,
+        name: `${campaign.name} — ${ad.variantLabel} creative`,
         imageHash: hash,
         headline: ad.headline,
         primaryText: ad.primaryText,
         description: ad.description,
         ctaType: ad.ctaButton,
-        destinationUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
+        destinationUrl,
       });
     }
 
-    // 5. Create ad
     const metaAd = await createMetaAd({
-      name: `${ad.campaign.name} — ${ad.variantLabel}`,
+      name: `${campaign.name} — ${ad.variantLabel}`,
       adSetId: adSet.id,
       creativeId: creative.id,
+      status: publishStatus,
     });
 
-    // 6. Update local DB
     await prisma.ad.update({
       where: { id },
-      data: {
-        status: "LIVE",
-        metaAdId: metaAd.id,
-        metaAdSetId: adSet.id,
-      },
+      data: { status: publishStatus === "ACTIVE" ? "LIVE" : "LIVE", metaAdId: metaAd.id, metaAdSetId: adSet.id },
     });
 
-    if (ad.campaign.status === "DRAFT") {
-      await prisma.campaign.update({
-        where: { id: ad.campaign.id },
-        data: { status: "ACTIVE" },
-      });
+    if (campaign.status === "DRAFT") {
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "ACTIVE" } });
     }
 
-    return NextResponse.json({
-      ok: true,
-      metaAdId: metaAd.id,
-      metaAdSetId: adSet.id,
-      metaCampaignId,
-    });
+    return NextResponse.json({ ok: true, metaAdId: metaAd.id, metaAdSetId: adSet.id, metaCampaignId, status: publishStatus });
   } catch (err) {
-    await prisma.ad.update({
-      where: { id },
-      data: { status: "DRAFT" },
-    });
-    const msg = err instanceof Error ? err.message : "Meta publish failed.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    await prisma.ad.update({ where: { id }, data: { status: "DRAFT" } });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Meta publish failed." }, { status: 502 });
   }
 }

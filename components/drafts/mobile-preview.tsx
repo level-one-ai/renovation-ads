@@ -14,6 +14,7 @@ import { humanizeEnum } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 export interface MobilePreviewProps {
+  destinationUrl?: string;
   pageName?: string;
   headline: string;
   primaryText: string;
@@ -26,6 +27,7 @@ export interface MobilePreviewProps {
   service?: string;
   location?: string;
   offer?: string;
+  destinationUrl?: string;
 }
 
 export function MobilePreview({
@@ -41,6 +43,7 @@ export function MobilePreview({
   service,
   location,
   offer,
+  destinationUrl,
 }: MobilePreviewProps) {
   const ctaLabel = humanizeEnum(ctaButton);
   const showVideo = useVideo && videoUrl;
@@ -141,7 +144,7 @@ export function MobilePreview({
 
             <div className="flex items-center justify-between gap-3 px-3 py-3 bg-zinc-50 border-t border-zinc-100">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-wide text-zinc-500">yourdomain.com</div>
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500 flex items-center gap-1"><Globe className="h-3 w-3" />{destinationUrl ? new URL(destinationUrl.startsWith('http') ? destinationUrl : 'https://' + destinationUrl).hostname : 'yourdomain.com'}</div>
                 <div className="text-[14px] font-semibold leading-tight truncate">{headline}</div>
                 <div className="text-[12px] text-zinc-500 leading-tight truncate">{description}</div>
               </div>

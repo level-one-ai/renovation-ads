@@ -7,6 +7,17 @@ import { generateAdImage } from "@/lib/gemini";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const GeoLocationSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  metaKey: z.string(),
+  metaName: z.string(),
+  metaCountryCode: z.string(),
+  metaRegionId: z.string().optional(),
+});
+
 const UploadedFileSchema = z.object({
   url: z.string().url(),
   type: z.enum(["image", "video"]),
@@ -17,53 +28,56 @@ const UploadedFileSchema = z.object({
 const InputSchema = z.object({
   campaignName: z.string().min(2).max(120),
   service: z.enum([
-    "KITCHEN_REMODEL", "BATHROOM_REMODEL", "WHOLE_HOME_RENOVATION", "ROOM_ADDITION",
-    "BASEMENT_FINISHING", "ROOFING", "SIDING", "WINDOWS_DOORS", "DECK_PATIO",
-    "GARAGE_CONVERSION", "ADU_CONSTRUCTION", "COMMERCIAL_FITOUT",
+    "KITCHEN_REMODEL","BATHROOM_REMODEL","WHOLE_HOME_RENOVATION","ROOM_ADDITION",
+    "BASEMENT_FINISHING","ROOFING","SIDING","WINDOWS_DOORS","DECK_PATIO",
+    "GARAGE_CONVERSION","ADU_CONSTRUCTION","COMMERCIAL_FITOUT",
   ]),
-  location: z.string().min(2).max(120),
+  location: z.string().min(2).max(500),
   dailyBudget: z.number().min(5).max(10000),
   offer: z.enum([
-    "FREE_ESTIMATE", "FREE_DESIGN_CONSULTATION", "FINANCING_AVAILABLE",
-    "LIMITED_SLOTS", "SEASONAL_DISCOUNT", "FREE_3D_RENDER",
+    "FREE_ESTIMATE","FREE_DESIGN_CONSULTATION","FINANCING_AVAILABLE",
+    "LIMITED_SLOTS","SEASONAL_DISCOUNT","FREE_3D_RENDER",
   ]),
+  destinationUrl: z.string().url().optional().default(""),
+  geoTargeting: z.object({
+    locations: z.array(GeoLocationSchema),
+    radiusMiles: z.number(),
+  }).optional(),
+  audience: z.object({
+    ageMin: z.number().min(18).max(65),
+    ageMax: z.number().min(18).max(65),
+    gender: z.enum(["all", "male", "female"]),
+  }).optional(),
+  publishActive: z.boolean().optional().default(false),
   uploadedFiles: z.array(UploadedFileSchema).max(3).optional().default([]),
 });
 
 export async function POST(req: Request) {
   let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
+  try { body = await req.json(); }
+  catch { return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 }); }
 
   const parsed = InputSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid input.", details: parsed.error.flatten() },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid input.", details: parsed.error.flatten() }, { status: 400 });
   }
   const input = parsed.data;
   const hasUploads = input.uploadedFiles.length > 0;
 
-  // 1. Ask Claude for 3 variants
+  // Generate copy variants from Claude
   let variants;
   try {
     variants = await generateAdVariants(input);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Claude generation failed.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Claude failed." }, { status: 502 });
   }
 
-  // 2. Assign uploaded files to variants (round-robin if fewer files than variants)
   function getFileForVariant(index: number) {
     if (!hasUploads) return null;
     return input.uploadedFiles[index % input.uploadedFiles.length];
   }
 
-  // 3. Persist campaign + ads
+  // Persist campaign + ads
   const campaign = await prisma.campaign.create({
     data: {
       name: input.campaignName,
@@ -71,6 +85,10 @@ export async function POST(req: Request) {
       location: input.location,
       dailyBudget: input.dailyBudget,
       offer: input.offer,
+      destinationUrl: input.destinationUrl ?? "",
+      geoTargeting: input.geoTargeting ?? undefined,
+      audience: input.audience ?? undefined,
+      publishActive: input.publishActive ?? false,
       status: "DRAFT",
       ads: {
         create: variants.map((v, i) => {
@@ -84,7 +102,6 @@ export async function POST(req: Request) {
             description: v.description,
             ctaButton: v.ctaButton,
             imagePrompt: v.imagePrompt,
-            // Pre-fill with uploaded files if provided
             imageUrl: isImage ? file.url : null,
             beforeAfterUrl: isImage ? file.url : null,
             useBeforeAfter: isImage,
@@ -99,29 +116,19 @@ export async function POST(req: Request) {
     include: { ads: true },
   });
 
-  // 4. Generate AI images only for ads that don't have an uploaded file
+  // Generate AI images only if no uploads
   if (!hasUploads) {
     await Promise.allSettled(
       campaign.ads.map(async (ad) => {
         try {
-          const imageUrl = await generateAdImage(
-            ad.imagePrompt,
-            `${campaign.id}-${ad.variantLabel}`
-          );
-          await prisma.ad.update({
-            where: { id: ad.id },
-            data: { imageUrl },
-          });
+          const imageUrl = await generateAdImage(ad.imagePrompt, `${campaign.id}-${ad.variantLabel}`);
+          await prisma.ad.update({ where: { id: ad.id }, data: { imageUrl } });
         } catch (err) {
-          console.error(`Image generation failed for ad ${ad.id}:`, err);
+          console.error(`Image gen failed for ${ad.id}:`, err);
         }
       })
     );
   }
 
-  return NextResponse.json({
-    campaignId: campaign.id,
-    adIds: campaign.ads.map((a) => a.id),
-    creativeSource: hasUploads ? "uploaded" : "ai",
-  });
+  return NextResponse.json({ campaignId: campaign.id, adIds: campaign.ads.map((a) => a.id) });
 }

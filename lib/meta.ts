@@ -78,24 +78,51 @@ export async function createMetaCampaign(params: {
   });
 }
 
+interface GeoLoc {
+  metaKey: string;
+  metaName: string;
+  metaCountryCode: string;
+  metaRegionId?: string;
+}
+
 export async function createMetaAdSet(params: {
   name: string;
   campaignId: string;
   dailyBudgetUsd: number;
-  location: string; // free-text, will be resolved to a geo target by Meta best-effort
+  location: string;
+  geoTargeting?: { locations: GeoLoc[]; radiusMiles: number };
+  audience?: { ageMin: number; ageMax: number; gender: string };
   pixelId?: string;
+  status?: "ACTIVE" | "PAUSED";
 }): Promise<{ id: string }> {
-  // Note: a production system would use the Targeting Search API to convert
-  // `location` into a geo_locations object. We send it as a city name for the
-  // location field — Meta will return an error if it can't resolve it, which
-  // surfaces clearly in the UI.
-  const targeting = {
-    geo_locations: {
-      // Best-effort: assume US/UK city. In production, resolve via /search?type=adgeolocation
-      cities: [{ name: params.location }],
-    },
-    age_min: 30,
-    age_max: 65,
+  // Build geo_locations from pre-validated Meta location keys
+  let geoLocations: Record<string, unknown>;
+  if (params.geoTargeting && params.geoTargeting.locations.length > 0) {
+    const radiusKm = Math.round(params.geoTargeting.radiusMiles * 1.60934);
+    geoLocations = {
+      cities: params.geoTargeting.locations.map((l) => ({
+        key: l.metaKey,
+        name: l.metaName,
+        country: l.metaCountryCode,
+        region_id: l.metaRegionId,
+        radius: radiusKm,
+        distance_unit: "kilometer",
+      })),
+    };
+  } else {
+    geoLocations = { cities: [{ name: params.location }] };
+  }
+
+  // Gender targeting
+  const genderNums: number[] = [];
+  if (params.audience?.gender === "male") genderNums.push(1);
+  else if (params.audience?.gender === "female") genderNums.push(2);
+
+  const targeting: Record<string, unknown> = {
+    geo_locations: geoLocations,
+    age_min: params.audience?.ageMin ?? 30,
+    age_max: params.audience?.ageMax ?? 65,
+    ...(genderNums.length > 0 ? { genders: genderNums } : {}),
     flexible_spec: [
       {
         interests: [
@@ -112,12 +139,12 @@ export async function createMetaAdSet(params: {
   const body: Record<string, unknown> = {
     name: params.name,
     campaign_id: params.campaignId,
-    daily_budget: Math.round(params.dailyBudgetUsd * 100), // cents
+    daily_budget: Math.round(params.dailyBudgetUsd * 100),
     billing_event: "IMPRESSIONS",
     optimization_goal: "LEAD_GENERATION",
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting: JSON.stringify(targeting),
-    status: "PAUSED",
+    status: params.status ?? "PAUSED",
     start_time: new Date(Date.now() + 60_000).toISOString(),
     destination_type: "ON_AD",
   };
@@ -192,6 +219,7 @@ export async function createMetaAd(params: {
   name: string;
   adSetId: string;
   creativeId: string;
+  status?: "ACTIVE" | "PAUSED";
 }): Promise<{ id: string }> {
   return metaFetch<{ id: string }>(`/${adAccount()}/ads`, {
     method: "POST",
@@ -199,7 +227,7 @@ export async function createMetaAd(params: {
       name: params.name,
       adset_id: params.adSetId,
       creative: JSON.stringify({ creative_id: params.creativeId }),
-      status: "PAUSED",
+      status: params.status ?? "PAUSED",
     }),
   });
 }

@@ -12,23 +12,18 @@ interface StatsCardProps {
 
 export function StatsCard({ label, value, delta, icon: Icon, className }: StatsCardProps) {
   return (
-    <Card className={cn("p-5", className)}>
+    <Card className={cn("p-5 bg-white hover:shadow-md transition-shadow", className)}>
       <div className="flex items-start justify-between">
-        <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-          {label}
-        </div>
-        {Icon && <Icon className="h-4 w-4 text-muted-foreground/70" />}
+        <div className="text-[10px] font-semibold tracking-[0.14em] uppercase text-muted-foreground">{label}</div>
+        {Icon && (
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-primary/20 bg-accent">
+            <Icon className="h-3.5 w-3.5 text-primary" />
+          </div>
+        )}
       </div>
-      <div className="mt-3 font-display text-3xl tabular-nums leading-none">
-        {value}
-      </div>
+      <div className="mt-3 font-display text-3xl tabular-nums text-foreground leading-none">{value}</div>
       {delta && (
-        <div
-          className={cn(
-            "mt-2 text-xs tabular-nums",
-            delta.positive ? "text-emerald-500" : "text-rose-500"
-          )}
-        >
+        <div className={cn("mt-2 text-xs tabular-nums font-medium", delta.positive ? "text-emerald-600" : "text-rose-500")}>
           {delta.positive ? "↑" : "↓"} {delta.value}
         </div>
       )}
