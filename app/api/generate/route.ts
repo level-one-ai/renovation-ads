@@ -8,13 +8,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const GeoLocationSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  lat: z.number(),
-  lng: z.number(),
-  metaKey: z.string(),
-  metaName: z.string(),
-  metaCountryCode: z.string(),
+  id: z.string(), label: z.string(), lat: z.number(), lng: z.number(),
+  metaKey: z.string(), metaName: z.string(), metaCountryCode: z.string(),
   metaRegionId: z.string().optional(),
 });
 
@@ -23,6 +18,7 @@ const UploadedFileSchema = z.object({
   type: z.enum(["image", "video"]),
   name: z.string(),
   size: z.number(),
+  description: z.string().default(""),
 });
 
 const InputSchema = z.object({
@@ -49,7 +45,7 @@ const InputSchema = z.object({
     gender: z.enum(["all", "male", "female"]),
   }).optional(),
   publishActive: z.boolean().optional().default(false),
-  uploadedFiles: z.array(UploadedFileSchema).max(3).optional().default([]),
+  uploadedFiles: z.array(UploadedFileSchema).max(2).optional().default([]),
 });
 
 export async function POST(req: Request) {
@@ -64,18 +60,23 @@ export async function POST(req: Request) {
   const input = parsed.data;
   const hasUploads = input.uploadedFiles.length > 0;
 
-  // Generate copy variants from Claude
+  // Budget split: divide daily budget equally across 2 ads
+  const adCount = 2;
+  const budgetPerAd = Math.round((input.dailyBudget / adCount) * 100) / 100;
+
+  // Generate copy variants from Claude (2 variants, creative-aware if uploads provided)
   let variants;
   try {
-    variants = await generateAdVariants(input);
+    variants = await generateAdVariants({
+      ...input,
+      uploadedFiles: hasUploads ? input.uploadedFiles : undefined,
+    });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Claude failed." }, { status: 502 });
   }
 
-  function getFileForVariant(index: number) {
-    if (!hasUploads) return null;
-    return input.uploadedFiles[index % input.uploadedFiles.length];
-  }
+  // Ensure we have exactly 2 variants
+  const finalVariants = variants.slice(0, 2);
 
   // Persist campaign + ads
   const campaign = await prisma.campaign.create({
@@ -91,8 +92,9 @@ export async function POST(req: Request) {
       publishActive: input.publishActive ?? false,
       status: "DRAFT",
       ads: {
-        create: variants.map((v, i) => {
-          const file = getFileForVariant(i);
+        create: finalVariants.map((v, i) => {
+          // Each ad gets its own uploaded file (A→file[0], B→file[1])
+          const file = hasUploads ? input.uploadedFiles[i] ?? input.uploadedFiles[0] : null;
           const isVideo = file?.type === "video";
           const isImage = file?.type === "image";
           return {
@@ -102,11 +104,11 @@ export async function POST(req: Request) {
             description: v.description,
             ctaButton: v.ctaButton,
             imagePrompt: v.imagePrompt,
-            imageUrl: isImage ? file.url : null,
-            beforeAfterUrl: isImage ? file.url : null,
-            useBeforeAfter: isImage,
-            videoUrl: isVideo ? file.url : null,
-            useVideo: isVideo,
+            imageUrl: isImage ? file!.url : null,
+            beforeAfterUrl: isImage ? file!.url : null,
+            useBeforeAfter: isImage ?? false,
+            videoUrl: isVideo ? file!.url : null,
+            useVideo: isVideo ?? false,
             creativeType: isVideo ? "VIDEO" : "IMAGE",
             status: "DRAFT",
           };
@@ -116,7 +118,7 @@ export async function POST(req: Request) {
     include: { ads: true },
   });
 
-  // Generate AI images only if no uploads
+  // Generate AI images only if no uploads provided
   if (!hasUploads) {
     await Promise.allSettled(
       campaign.ads.map(async (ad) => {
@@ -130,5 +132,10 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ campaignId: campaign.id, adIds: campaign.ads.map((a) => a.id) });
+  return NextResponse.json({
+    campaignId: campaign.id,
+    adIds: campaign.ads.map((a) => a.id),
+    budgetPerAd,
+    adCount,
+  });
 }

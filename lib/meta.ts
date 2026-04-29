@@ -342,3 +342,21 @@ export async function createMetaVideoAdCreative(params: {
     }),
   });
 }
+
+// ─────────────────────────────────────────────────────────────
+// Pause / resume ad set
+// ─────────────────────────────────────────────────────────────
+
+export async function pauseMetaAdSet(adSetId: string): Promise<void> {
+  await metaFetch(`/${adSetId}`, {
+    method: "POST",
+    body: JSON.stringify({ status: "PAUSED" }),
+  });
+}
+
+export async function resumeMetaAdSet(adSetId: string): Promise<void> {
+  await metaFetch(`/${adSetId}`, {
+    method: "POST",
+    body: JSON.stringify({ status: "ACTIVE" }),
+  });
+}

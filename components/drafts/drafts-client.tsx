@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Pencil, CheckCircle2, Trash2, Loader2, Inbox, RefreshCw } from "lucide-react";
+import { Pencil, CheckCircle2, Trash2, Loader2, Inbox, RefreshCw, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,8 @@ export function DraftsClient() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingAd, setEditingAd] = useState<AdRow | null>(null);
   const [publishing, setPublishing] = useState<string | null>(null);
+  const [pausing, setPausing] = useState<string | null>(null);
+  const [publishingAll, setPublishingAll] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,7 +94,40 @@ export function DraftsClient() {
     }
   }
 
-  async function discard(id: string) {
+
+  async function pauseAd(id: string) {
+    setPausing(id);
+    const t = toast.loading("Pausing ad…");
+    try {
+      const res = await fetch(`/api/ads/${id}/pause`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Pause failed");
+      toast.success("Ad paused — back in Drafts for editing.", { id: t });
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pause failed", { id: t });
+    } finally {
+      setPausing(null);
+    }
+  }
+
+  async function publishAll() {
+    const draftAds = ads.filter((a) => a.status === "DRAFT");
+    if (draftAds.length === 0) { toast.error("No draft ads to publish."); return; }
+    setPublishingAll(true);
+    const t = toast.loading(`Publishing ${draftAds.length} ads…`);
+    let successCount = 0;
+    for (const ad of draftAds) {
+      try {
+        const res = await fetch(`/api/ads/${ad.id}/publish`, { method: "POST" });
+        if (res.ok) successCount++;
+      } catch { /* continue */ }
+    }
+    toast.success(`${successCount}/${draftAds.length} ads published.`, { id: t });
+    setPublishingAll(false);
+    await load();
+  }
+
+    async function discard(id: string) {
     if (!confirm("Discard this draft?")) return;
     await fetch(`/api/ads/${id}`, { method: "DELETE" });
     toast.success("Draft discarded.");
@@ -168,6 +203,20 @@ export function DraftsClient() {
       {/* Active preview */}
       {active && (
         <Tabs defaultValue="preview" className="space-y-4">
+          {/* Budget split info */}
+          {ads.filter((a) => a.status === "DRAFT").length > 1 && (
+            <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-accent px-4 py-2.5">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{ads.length} ads</span> sharing the daily budget
+              </p>
+              <Button size="sm" onClick={publishAll} disabled={publishingAll}>
+                {publishingAll
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Publishing…</>
+                  : <><CheckCircle2 className="h-3.5 w-3.5" />Approve & Publish Both</>}
+              </Button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between flex-wrap gap-3">
             <TabsList>
               <TabsTrigger value="preview">Mobile preview</TabsTrigger>

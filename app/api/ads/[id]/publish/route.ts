@@ -57,7 +57,14 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
     const adSet = await createMetaAdSet({
       name: `${campaign.name} — ${ad.variantLabel}`,
       campaignId: metaCampaignId,
-      dailyBudgetUsd: campaign.dailyBudget,
+      // Split budget equally across all active + this ad being published
+      dailyBudgetUsd: await (async () => {
+        const activeCount = await prisma.ad.count({
+          where: { campaignId: campaign.id, status: { in: ["LIVE", "PUBLISHING"] } }
+        });
+        const totalAds = activeCount + 1; // +1 for this ad
+        return Math.max(5, campaign.dailyBudget / totalAds);
+      })(),
       location: campaign.location,
       geoTargeting: geoTargeting ?? undefined,
       audience: audience ?? undefined,

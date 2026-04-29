@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
-  Globe,
   MoreHorizontal,
   ThumbsUp,
   MessageCircle,
@@ -15,6 +14,7 @@ import { humanizeEnum } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 export interface MobilePreviewProps {
+  destinationUrl?: string;
   pageName?: string;
   headline: string;
   primaryText: string;
