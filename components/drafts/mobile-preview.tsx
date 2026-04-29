@@ -14,7 +14,6 @@ import { humanizeEnum } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 export interface MobilePreviewProps {
-  destinationUrl?: string;
   pageName?: string;
   headline: string;
   primaryText: string;
