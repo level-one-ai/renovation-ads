@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -61,9 +61,15 @@ export async function PATCH(
     );
   }
 
+  const { adGeoTargeting, ...rest } = parsed.data;
   const ad = await prisma.ad.update({
     where: { id },
-    data: parsed.data,
+    data: {
+      ...rest,
+      ...(adGeoTargeting !== undefined
+        ? { adGeoTargeting: adGeoTargeting === null ? Prisma.JsonNull : adGeoTargeting }
+        : {}),
+    },
   });
   return NextResponse.json({ ad });
 }
