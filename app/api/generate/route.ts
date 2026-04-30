@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { generateAdVariants } from "@/lib/anthropic";
 import { generateAdImage } from "@/lib/gemini";
 
@@ -120,7 +120,7 @@ export async function POST(req: Request) {
             videoUrl: isVideo ? file!.url : null,
             useVideo: isVideo ?? false,
             creativeType: isVideo ? "VIDEO" : "IMAGE",
-            adGeoTargeting: file?.geoTargeting ?? null,
+            adGeoTargeting: file?.geoTargeting ?? Prisma.JsonNull,
             status: "DRAFT",
           };
         }),
