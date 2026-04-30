@@ -58,6 +58,9 @@ model Ad {
   useVideo        Boolean     @default(false)
   creativeType    CreativeType @default(IMAGE)
 
+  // Per-ad geo targeting (overrides campaign-level if set)
+  adGeoTargeting  Json?   // { locations: [...], radiusMiles: number }
+
   // Workflow
   status          AdStatus    @default(DRAFT)
   metaAdId        String?

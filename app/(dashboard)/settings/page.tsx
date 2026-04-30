@@ -29,6 +29,7 @@ const checks: EnvCheck[] = [
   { key: "BLOB_READ_WRITE_TOKEN", label: "Vercel Blob token", group: "Storage", required: false },
   { key: "DATABASE_URL", label: "PostgreSQL URL", group: "App", required: true },
   { key: "NEXT_PUBLIC_APP_URL", label: "App URL", group: "App", required: false },
+  { key: "META_CAPI_SECRET", label: "CAPI secret (webhook auth)", group: "Meta", required: false },
 ];
 
 export default function SettingsPage() {

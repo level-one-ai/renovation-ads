@@ -34,7 +34,12 @@ export async function POST(_req: Request, context: { params: Promise<{ id: strin
 
   // Read campaign-level settings
   const campaign = ad.campaign;
-  const geoTargeting = campaign.geoTargeting as {
+  // Per-ad geo targeting takes priority over campaign-level
+  const adGeoTargeting = (ad as Record<string, unknown>).adGeoTargeting as {
+    locations: Array<{ metaKey: string; metaName: string; metaCountryCode: string; metaRegionId?: string }>;
+    radiusMiles: number;
+  } | null;
+  const geoTargeting = adGeoTargeting ?? campaign.geoTargeting as {
     locations: Array<{ metaKey: string; metaName: string; metaCountryCode: string; metaRegionId?: string }>;
     radiusMiles: number;
   } | null;

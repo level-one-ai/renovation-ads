@@ -16,6 +16,14 @@ const PatchSchema = z.object({
   videoUrl: z.string().url().nullable().optional(),
   useVideo: z.boolean().optional(),
   creativeType: z.enum(["IMAGE", "VIDEO"]).optional(),
+  adGeoTargeting: z.object({
+    locations: z.array(z.object({
+      id: z.string(), label: z.string(), lat: z.number(), lng: z.number(),
+      metaKey: z.string(), metaName: z.string(), metaCountryCode: z.string(),
+      metaRegionId: z.string().optional(),
+    })),
+    radiusMiles: z.number(),
+  }).nullable().optional(),
   status: z
     .enum(["DRAFT", "PENDING_APPROVAL", "APPROVED", "PUBLISHING", "LIVE", "PAUSED", "REJECTED"])
     .optional(),

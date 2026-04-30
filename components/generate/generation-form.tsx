@@ -7,7 +7,8 @@ import dynamic from "next/dynamic";
 import {
   Sparkles, Loader2, DollarSign, Wrench, Tag, Upload,
   Video, Image as ImageIcon, X, Check, Globe, Users,
-  ChevronDown, MapPin, Zap, Search, FileText,
+  ChevronDown, MapPin, Zap, Search, FileText, Plus,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,7 +33,7 @@ const CoverageMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[280px] rounded-xl bg-secondary animate-pulse flex items-center justify-center">
+      <div className="h-[240px] rounded-xl bg-secondary animate-pulse flex items-center justify-center">
         <span className="text-xs text-muted-foreground">Loading map…</span>
       </div>
     ),
@@ -41,12 +42,18 @@ const CoverageMap = dynamic(
 
 type CreativeMode = "ai" | "upload";
 
+interface FileGeo {
+  locations: GeoLocation[];
+  radiusMiles: number;
+}
+
 interface UploadedFile {
   url: string;
   type: "image" | "video";
   name: string;
   size: number;
   description: string;
+  geoTargeting?: FileGeo;
 }
 
 const SERVICE_AUDIENCE_DEFAULTS: Record<string, { ageMin: number; ageMax: number; gender: string }> = {
@@ -74,7 +81,7 @@ function SectionHeader({ icon: Icon, title, subtitle, badge }: {
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <div className="text-sm font-semibold text-foreground">{title}</div>
+          <div className="text-sm font-semibold">{title}</div>
           {badge && <Badge variant="outline" className="text-[10px] border-primary/20 text-primary">{badge}</Badge>}
         </div>
         {subtitle && <div className="text-xs text-muted-foreground mt-0.5">{subtitle}</div>}
@@ -83,11 +90,122 @@ function SectionHeader({ icon: Icon, title, subtitle, badge }: {
   );
 }
 
-function FileSizeLabel({ bytes }: { bytes: number }) {
-  const label = bytes < 1024 * 1024
-    ? `${(bytes / 1024).toFixed(0)}KB`
-    : `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return <span>{label}</span>;
+// Inline location picker for per-file geo targeting
+function InlineLocationPicker({
+  value,
+  onChange,
+}: {
+  value: FileGeo | undefined;
+  onChange: (geo: FileGeo | undefined) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [showDrop, setShowDrop] = useState(false);
+  const [useCustomGeo, setUseCustomGeo] = useState(!!value);
+  const locations = value?.locations ?? [];
+  const radius = value?.radiusMiles ?? 10;
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return EDINBURGH_LOCATIONS.filter(
+      (l) => !locations.find((s) => s.id === l.id) &&
+        (l.label.toLowerCase().includes(q) || l.group.toLowerCase().includes(q))
+    );
+  }, [search, locations]);
+
+  const estimatedReach = useMemo(() => estimateReach(locations, radius), [locations, radius]);
+
+  function addLoc(loc: GeoLocation) {
+    onChange({ locations: [...locations, loc], radiusMiles: radius });
+    setSearch(""); setShowDrop(false);
+  }
+  function removeLoc(id: string) {
+    const next = locations.filter((l) => l.id !== id);
+    onChange(next.length ? { locations: next, radiusMiles: radius } : undefined);
+  }
+  function setRadius(r: number) {
+    if (locations.length) onChange({ locations, radiusMiles: r });
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-xs cursor-pointer">
+        <input type="checkbox" checked={useCustomGeo}
+          onChange={(e) => {
+            setUseCustomGeo(e.target.checked);
+            if (!e.target.checked) onChange(undefined);
+          }}
+          className="accent-primary" />
+        <span className="font-medium">Use different location for this ad</span>
+        <span className="text-muted-foreground">(overrides campaign location)</span>
+      </label>
+
+      <AnimatePresence>
+        {useCustomGeo && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden space-y-3">
+
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground z-10" />
+              <Input className="pl-8 bg-white h-8 text-xs" placeholder="Search areas…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setShowDrop(true); }}
+                onFocus={() => setShowDrop(true)} />
+              {showDrop && filtered.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-44 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
+                  {LOCATION_GROUPS.filter((g) => filtered.some((l) => l.group === g)).map((group) => (
+                    <div key={group}>
+                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary/50 border-b border-border">{group}</div>
+                      {filtered.filter((l) => l.group === group).map((loc) => (
+                        <button key={loc.id} type="button" onClick={() => addLoc(loc)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent transition-colors text-left">
+                          <MapPin className="h-3 w-3 text-primary shrink-0" />{loc.label}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {showDrop && <div className="fixed inset-0 z-40" onClick={() => setShowDrop(false)} />}
+            </div>
+
+            {locations.length > 0 && (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {locations.map((loc) => (
+                    <Badge key={loc.id} variant="outline" className="gap-1 pr-1 text-[10px] border-primary/20 bg-accent">
+                      <MapPin className="h-2.5 w-2.5 text-primary" />{loc.label}
+                      <button type="button" onClick={() => removeLoc(loc.id)} className="ml-0.5 hover:bg-primary/20 rounded-full p-0.5">
+                        <X className="h-2 w-2" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="flex gap-1.5 flex-wrap">
+                  {RADIUS_OPTIONS.map((r) => (
+                    <button key={r.value} type="button" onClick={() => setRadius(r.value)}
+                      className={cn("px-2 py-1 rounded-md border text-[10px] font-medium transition-all",
+                        radius === r.value ? "border-primary bg-accent text-primary" : "border-border bg-white text-muted-foreground hover:border-primary/30")}>
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <CoverageMap locations={locations} radiusMiles={radius} className="h-[200px] w-full" />
+                </div>
+                {estimatedReach > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Est. reach: <span className="font-semibold text-primary">~{formatCompact(estimatedReach)} people</span>
+                  </p>
+                )}
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export function GenerationForm() {
@@ -101,7 +219,7 @@ export function GenerationForm() {
   const [dailyBudget, setDailyBudget] = useState("60");
   const [destinationUrl, setDestinationUrl] = useState("");
 
-  // Geo
+  // Campaign-level geo
   const [selectedLocations, setSelectedLocations] = useState<GeoLocation[]>([]);
   const [radiusMiles, setRadiusMiles] = useState(10);
   const [locationSearch, setLocationSearch] = useState("");
@@ -120,8 +238,8 @@ export function GenerationForm() {
   const [creativeMode, setCreativeMode] = useState<CreativeMode>("ai");
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  const fileInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleServiceChange(v: ServiceTypeValue) {
     setService(v);
@@ -137,41 +255,30 @@ export function GenerationForm() {
     );
   }, [locationSearch, selectedLocations]);
 
-  const estimatedReach = useMemo(
-    () => estimateReach(selectedLocations, radiusMiles),
-    [selectedLocations, radiusMiles]
-  );
+  const estimatedReach = useMemo(() => estimateReach(selectedLocations, radiusMiles), [selectedLocations, radiusMiles]);
+  const budgetPerAd = uploadedFiles.length > 1
+    ? (Number(dailyBudget) / uploadedFiles.length).toFixed(2)
+    : Number(dailyBudget) > 0 ? (Number(dailyBudget) / 2).toFixed(2) : "0.00";
+  const adCount = Math.max(uploadedFiles.length, 2);
 
-  const budgetPerAd = dailyBudget ? (Number(dailyBudget) / 2).toFixed(2) : "0.00";
-
-  function addLocation(loc: GeoLocation) {
-    if (selectedLocations.length >= 5) { toast.error("Maximum 5 locations."); return; }
-    setSelectedLocations((p) => [...p, loc]);
-    setLocationSearch("");
-    setShowLocationDropdown(false);
-  }
-
-  async function uploadFile(file: File, slot: number) {
+  async function uploadFile(file: File) {
     const isVideo = file.type.startsWith("video/");
     const isImage = file.type.startsWith("image/");
     if (!isVideo && !isImage) { toast.error("Only image or video files accepted."); return; }
-
     setUploading(true);
-    const t = toast.loading(`Uploading Ad ${slot === 0 ? "A" : "B"}…`);
+    const t = toast.loading(`Uploading ${file.name}…`);
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("adId", `pre-${Date.now()}-${slot}`);
+      form.append("adId", `pre-${Date.now()}`);
       const res = await fetch("/api/upload", { method: "POST", body: form });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Upload failed");
       const json = await res.json();
-      const newFile: UploadedFile = { url: json.url, type: json.type, name: file.name, size: file.size, description: "" };
-      setUploadedFiles((prev) => {
-        const updated = [...prev];
-        updated[slot] = newFile;
-        return updated;
-      });
-      toast.success(`Ad ${slot === 0 ? "A" : "B"} uploaded.`, { id: t });
+      setUploadedFiles((prev) => [...prev, {
+        url: json.url, type: json.type, name: file.name, size: file.size,
+        description: "", geoTargeting: undefined,
+      }]);
+      toast.success(`${file.name} uploaded.`, { id: t });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed", { id: t });
     } finally {
@@ -179,43 +286,39 @@ export function GenerationForm() {
     }
   }
 
-  function updateDescription(slot: number, desc: string) {
-    setUploadedFiles((prev) => {
-      const updated = [...prev];
-      if (updated[slot]) updated[slot] = { ...updated[slot], description: desc };
-      return updated;
-    });
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    Array.from(e.dataTransfer.files).forEach(uploadFile);
   }
 
-  function removeFile(slot: number) {
-    setUploadedFiles((prev) => {
-      const updated = [...prev];
-      delete updated[slot];
-      return updated;
-    });
+  function updateFile(index: number, patch: Partial<UploadedFile>) {
+    setUploadedFiles((prev) => prev.map((f, i) => i === index ? { ...f, ...patch } : f));
+  }
+
+  function removeFile(index: number) {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!campaignName || !service || !offer) { toast.error("Fill in all campaign fields."); return; }
-    if (selectedLocations.length === 0) { toast.error("Select at least one location."); return; }
+    if (selectedLocations.length === 0) { toast.error("Select at least one campaign location."); return; }
     const budget = Number(dailyBudget);
-    if (!Number.isFinite(budget) || budget < 10) { toast.error("Daily budget must be at least £10 (£5 per ad)."); return; }
+    if (!Number.isFinite(budget) || budget < 10) { toast.error("Daily budget must be at least £10."); return; }
     if (!destinationUrl) { toast.error("Enter a destination website URL."); return; }
+    if (creativeMode === "upload" && uploadedFiles.length === 0) { toast.error("Upload at least one file."); return; }
     if (creativeMode === "upload") {
-      const validFiles = uploadedFiles.filter(Boolean);
-      if (validFiles.length === 0) { toast.error("Upload at least one image or video."); return; }
-      const missingDesc = validFiles.findIndex((f) => !f.description.trim());
+      const missingDesc = uploadedFiles.findIndex((f) => !f.description.trim());
       if (missingDesc !== -1) {
-        toast.error(`Add a description for Ad ${missingDesc === 0 ? "A" : "B"} so Claude can write matching copy.`);
+        toast.error(`Add a description for Ad ${String.fromCharCode(65 + missingDesc)} so Claude can write matching copy.`);
         return;
       }
     }
 
     setSubmitting(true);
-    const t = toast.loading("Claude is crafting 2 variants…");
+    const t = toast.loading("Claude is crafting your variants…");
     try {
-      const validFiles = uploadedFiles.filter(Boolean);
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -224,25 +327,44 @@ export function GenerationForm() {
           location: selectedLocations.map((l) => l.label).join(", "),
           dailyBudget: budget,
           destinationUrl,
-          geoTargeting: { locations: selectedLocations.map((l) => ({
-            id: l.id, label: l.label, lat: l.lat, lng: l.lng,
-            metaKey: l.metaKey, metaName: l.metaName,
-            metaCountryCode: l.metaCountryCode, metaRegionId: l.metaRegionId,
-          })), radiusMiles },
+          geoTargeting: {
+            locations: selectedLocations.map((l) => ({
+              id: l.id, label: l.label, lat: l.lat, lng: l.lng,
+              metaKey: l.metaKey, metaName: l.metaName,
+              metaCountryCode: l.metaCountryCode, metaRegionId: l.metaRegionId,
+            })),
+            radiusMiles,
+          },
           audience: { ageMin, ageMax, gender },
           publishActive,
-          uploadedFiles: creativeMode === "upload" ? validFiles : [],
+          uploadedFiles: creativeMode === "upload" ? uploadedFiles.map((f) => ({
+            url: f.url, type: f.type, name: f.name, size: f.size,
+            description: f.description,
+            geoTargeting: f.geoTargeting ? {
+              locations: f.geoTargeting.locations.map((l) => ({
+                id: l.id, label: l.label, lat: l.lat, lng: l.lng,
+                metaKey: l.metaKey, metaName: l.metaName,
+                metaCountryCode: l.metaCountryCode, metaRegionId: l.metaRegionId,
+              })),
+              radiusMiles: f.geoTargeting.radiusMiles,
+            } : undefined,
+          })) : [],
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Failed (${res.status})`);
       const data = await res.json();
-      toast.success(`2 variants drafted · £${data.budgetPerAd}/day each`, { id: t });
+      const variantCount = uploadedFiles.length || 2;
+      toast.success(`${variantCount} variants drafted · £${(budget / variantCount).toFixed(2)}/day each`, { id: t });
       router.push(`/drafts?campaign=${data.campaignId}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.", { id: t });
       setSubmitting(false);
     }
   }
+
+  const fileSizeLabel = (b: number) => b < 1024 * 1024 ? `${(b / 1024).toFixed(0)}KB` : `${(b / (1024 * 1024)).toFixed(1)}MB`;
+
+  const adLabels = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
   return (
     <motion.div
@@ -315,7 +437,7 @@ export function GenerationForm() {
                 </div>
                 {Number(dailyBudget) > 0 && (
                   <p className="text-[11px] text-primary font-medium">
-                    £{budgetPerAd}/day per ad (split 50/50)
+                    £{budgetPerAd}/day × {adCount} ads
                   </p>
                 )}
               </div>
@@ -323,24 +445,24 @@ export function GenerationForm() {
           </div>
         </Card>
 
-        {/* ── 2. Geo targeting ── */}
+        {/* ── 2. Campaign-level geo ── */}
         <Card className="p-6">
-          <SectionHeader icon={MapPin} title="Geographic targeting" subtitle="Select areas to reach. Pre-validated for Meta." />
+          <SectionHeader icon={MapPin} title="Campaign location" subtitle="Default location applied to all ads. Each ad can override this below." />
           <div className="space-y-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground z-10" />
               <Input className="pl-8 bg-white" placeholder="Search Edinburgh areas…"
                 value={locationSearch}
                 onChange={(e) => { setLocationSearch(e.target.value); setShowLocationDropdown(true); }}
-                onFocus={() => setShowLocationDropdown(true)}
-                disabled={submitting} />
+                onFocus={() => setShowLocationDropdown(true)} disabled={submitting} />
               {showLocationDropdown && filteredLocations.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-52 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
                   {LOCATION_GROUPS.filter((g) => filteredLocations.some((l) => l.group === g)).map((group) => (
                     <div key={group}>
                       <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary/50 border-b border-border">{group}</div>
                       {filteredLocations.filter((l) => l.group === group).map((loc) => (
-                        <button key={loc.id} type="button" onClick={() => addLocation(loc)}
+                        <button key={loc.id} type="button"
+                          onClick={() => { setSelectedLocations((p) => [...p, loc]); setLocationSearch(""); setShowLocationDropdown(false); }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left">
                           <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />{loc.label}
                         </button>
@@ -349,8 +471,8 @@ export function GenerationForm() {
                   ))}
                 </div>
               )}
+              {showLocationDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowLocationDropdown(false)} />}
             </div>
-            {showLocationDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowLocationDropdown(false)} />}
 
             {selectedLocations.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -358,43 +480,37 @@ export function GenerationForm() {
                   <Badge key={loc.id} variant="outline" className="gap-1.5 pr-1 py-1 border-primary/20 bg-accent">
                     <MapPin className="h-3 w-3 text-primary" />{loc.label}
                     <button type="button" onClick={() => setSelectedLocations((p) => p.filter((l) => l.id !== loc.id))}
-                      className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
+                      className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5"><X className="h-2.5 w-2.5" /></button>
                   </Badge>
                 ))}
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Radius per location</Label>
-              <div className="flex gap-2 flex-wrap">
-                {RADIUS_OPTIONS.map((r) => (
-                  <button key={r.value} type="button" onClick={() => setRadiusMiles(r.value)}
-                    className={cn("px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                      radiusMiles === r.value ? "border-primary bg-accent text-primary gold-glow" : "border-border bg-white text-muted-foreground hover:border-primary/30")}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
+            <div className="flex gap-2 flex-wrap">
+              {RADIUS_OPTIONS.map((r) => (
+                <button key={r.value} type="button" onClick={() => setRadiusMiles(r.value)}
+                  className={cn("px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+                    radiusMiles === r.value ? "border-primary bg-accent text-primary gold-glow" : "border-border bg-white text-muted-foreground hover:border-primary/30")}>
+                  {r.label}
+                </button>
+              ))}
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Coverage map</Label>
-                {selectedLocations.length > 0 && estimatedReach > 0 && (
-                  <div className="text-[11px] text-muted-foreground">
-                    Est. reach: <span className="font-semibold text-primary">~{formatCompact(estimatedReach)} people</span>
-                  </div>
-                )}
+            {selectedLocations.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Coverage map</Label>
+                  {estimatedReach > 0 && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Est. reach: <span className="font-semibold text-primary">~{formatCompact(estimatedReach)} people</span>
+                    </span>
+                  )}
+                </div>
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <CoverageMap locations={selectedLocations} radiusMiles={radiusMiles} className="h-[260px] w-full" />
+                </div>
               </div>
-              <div className="rounded-xl border border-border overflow-hidden">
-                <CoverageMap locations={selectedLocations} radiusMiles={radiusMiles} className="h-[280px] w-full" />
-              </div>
-              {selectedLocations.length === 0 && (
-                <p className="text-[11px] text-muted-foreground text-center">Select a location to see your coverage area.</p>
-              )}
-            </div>
+            )}
           </div>
         </Card>
 
@@ -442,18 +558,14 @@ export function GenerationForm() {
                         <div className="text-[11px] text-muted-foreground">Minimum</div>
                         <Select value={String(ageMin)} onValueChange={(v) => setAgeMin(Number(v))}>
                           <SelectTrigger className="bg-white h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {[18,21,25,30,35,40,45,50].map((a) => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}
-                          </SelectContent>
+                          <SelectContent>{[18,21,25,30,35,40,45,50].map((a) => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-1">
                         <div className="text-[11px] text-muted-foreground">Maximum</div>
                         <Select value={String(ageMax)} onValueChange={(v) => setAgeMax(Number(v))}>
                           <SelectTrigger className="bg-white h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {[40,45,50,55,60,65].map((a) => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}
-                          </SelectContent>
+                          <SelectContent>{[40,45,50,55,60,65].map((a) => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                     </div>
@@ -466,12 +578,12 @@ export function GenerationForm() {
 
         {/* ── 4. Creative ── */}
         <Card className="p-6">
-          <SectionHeader icon={ImageIcon} title="Creative" subtitle="AI-generated visuals or upload your own videos and images." />
+          <SectionHeader icon={ImageIcon} title="Creative" subtitle="AI-generated visuals or upload your own videos and images — any amount." />
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
               {([
-                { mode: "ai" as CreativeMode, icon: Sparkles, title: "AI generated", desc: "Gemini renders authentic cell-phone style photos" },
-                { mode: "upload" as CreativeMode, icon: Upload, title: "Your own files", desc: "Upload 2 of your own videos or images" },
+                { mode: "ai" as CreativeMode, icon: Sparkles, title: "AI generated", desc: "Gemini renders authentic cell-phone photos" },
+                { mode: "upload" as CreativeMode, icon: Upload, title: "Your own files", desc: "Upload any number of videos or images" },
               ]).map(({ mode, icon: Icon, title, desc }) => (
                 <button key={mode} type="button" onClick={() => setCreativeMode(mode)}
                   className={cn("relative flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition-all",
@@ -493,107 +605,114 @@ export function GenerationForm() {
             <AnimatePresence>
               {creativeMode === "upload" && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden space-y-3">
+                  exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden space-y-4">
 
-                  {/* Budget reminder */}
-                  <div className="flex items-center gap-2 rounded-lg bg-accent border border-primary/10 px-3 py-2">
-                    <DollarSign className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <p className="text-[11px] text-muted-foreground">
-                      Daily budget splits equally: <strong className="text-foreground">£{budgetPerAd}/day for Ad A</strong> and <strong className="text-foreground">£{budgetPerAd}/day for Ad B</strong>.
-                    </p>
-                  </div>
+                  {/* Budget info */}
+                  {uploadedFiles.length > 0 && Number(dailyBudget) > 0 && (
+                    <div className="flex items-center gap-2 rounded-lg bg-accent border border-primary/10 px-3 py-2">
+                      <DollarSign className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <p className="text-[11px] text-muted-foreground">
+                        £{dailyBudget}/day ÷ {uploadedFiles.length} ads = <strong className="text-foreground">£{(Number(dailyBudget) / uploadedFiles.length).toFixed(2)}/day per ad</strong>
+                      </p>
+                    </div>
+                  )}
 
-                  {/* Two upload slots */}
-                  {[0, 1].map((slot) => {
-                    const file = uploadedFiles[slot];
-                    const label = slot === 0 ? "Ad A" : "Ad B";
-                    return (
-                      <div key={slot} className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                  {/* Uploaded files list */}
+                  <div className="space-y-3">
+                    {uploadedFiles.map((file, index) => (
+                      <motion.div key={index} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                        className="rounded-xl border border-border bg-secondary/20 p-4 space-y-4">
+
+                        {/* File header */}
                         <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-lg gold-gradient shrink-0">
+                              <span className="text-xs font-bold text-white">{adLabels[index]}</span>
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold">Ad {adLabels[index]}</div>
+                              <div className="text-[11px] text-muted-foreground">{file.name} · <span className="capitalize">{file.type}</span> · {fileSizeLabel(file.size)}</div>
+                            </div>
+                          </div>
                           <div className="flex items-center gap-2">
-                            <div className="flex h-6 w-6 items-center justify-center rounded-md gold-gradient">
-                              <span className="text-[10px] font-bold text-white">{slot === 0 ? "A" : "B"}</span>
-                            </div>
-                            <span className="text-sm font-semibold">{label}</span>
-                            {!file && <Badge variant="outline" className="text-[10px]">Not uploaded</Badge>}
-                            {file && <Badge variant="success" className="text-[10px]">Uploaded</Badge>}
-                          </div>
-                          {file && (
-                            <button type="button" onClick={() => removeFile(slot)} className="text-muted-foreground hover:text-foreground">
-                              <X className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-
-                        {!file ? (
-                          <div
-                            onDrop={(e) => { e.preventDefault(); setDragOver(null); const f = e.dataTransfer.files[0]; if (f) uploadFile(f, slot); }}
-                            onDragOver={(e) => { e.preventDefault(); setDragOver(slot); }}
-                            onDragLeave={() => setDragOver(null)}
-                            onClick={() => fileInputRefs[slot].current?.click()}
-                            className={cn(
-                              "flex flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-all",
-                              dragOver === slot ? "border-primary bg-accent/50" : "border-border hover:border-primary/40 hover:bg-white",
-                              uploading && "pointer-events-none opacity-60"
-                            )}>
-                            <input ref={fileInputRefs[slot]} type="file" accept="image/*,video/*" className="hidden"
-                              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f, slot); }} />
-                            <div className="flex items-center gap-2">
-                              <Video className="h-4 w-4 text-muted-foreground" />
-                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <span className="text-sm font-medium">Upload {label} creative</span>
-                            <span className="text-xs text-muted-foreground">Video or image · max 200MB</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-start gap-3">
                             {file.type === "image" && (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={file.url} alt="" className="h-16 w-16 rounded-lg object-cover shrink-0 border border-border" />
+                              <img src={file.url} alt="" className="h-10 w-10 rounded-lg object-cover border border-border" />
                             )}
                             {file.type === "video" && (
-                              <video src={file.url} className="h-16 w-16 rounded-lg object-cover shrink-0 border border-border" muted />
+                              <video src={file.url} className="h-10 w-10 rounded-lg object-cover border border-border" muted />
                             )}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">{file.name}</div>
-                              <div className="text-[11px] text-muted-foreground mb-2">
-                                {file.type} · <FileSizeLabel bytes={file.size} />
-                              </div>
-                              <button type="button" onClick={() => fileInputRefs[slot].current?.click()}
-                                className="text-[11px] text-primary hover:underline">
-                                Replace file
-                              </button>
-                              <input ref={fileInputRefs[slot]} type="file" accept="image/*,video/*" className="hidden"
-                                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f, slot); }} />
-                            </div>
+                            <button type="button" onClick={() => removeFile(index)} className="text-muted-foreground hover:text-foreground p-1">
+                              <X className="h-4 w-4" />
+                            </button>
                           </div>
-                        )}
+                        </div>
 
-                        {/* Description field — shown once file is uploaded */}
-                        {file && (
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                              <FileText className="h-3 w-3" /> Describe this creative
-                            </Label>
-                            <Textarea
-                              rows={2}
-                              placeholder={`e.g. "Before and after kitchen reveal showing new marble worktops and painted cabinets"`}
-                              value={file.description}
-                              onChange={(e) => updateDescription(slot, e.target.value)}
-                              className="bg-white text-sm resize-none"
-                            />
-                            <p className="text-[11px] text-muted-foreground">
-                              Claude uses this to write copy that matches your visual. Be specific.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        {/* Description */}
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                            <FileText className="h-3 w-3" /> Describe this creative for Claude
+                          </Label>
+                          <Textarea rows={2} placeholder={`e.g. "Before and after kitchen reveal showing new marble worktops — timelapse, 30 seconds, ends on wide shot"`}
+                            value={file.description}
+                            onChange={(e) => updateFile(index, { description: e.target.value })}
+                            className="bg-white text-sm resize-none" />
+                          <p className="text-[11px] text-muted-foreground">Claude reads this to write copy that matches your video. Be specific.</p>
+                        </div>
 
-                  <p className="text-[11px] text-muted-foreground text-center">
-                    You can upload just Ad A and Ad B will use the same creative — or upload both for a true A/B test.
-                  </p>
+                        {/* Per-ad geo targeting */}
+                        <div className="pt-3 border-t border-border/60 space-y-2">
+                          <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                            <MapPin className="h-3 w-3" /> Location for this ad
+                          </Label>
+                          <InlineLocationPicker
+                            value={file.geoTargeting}
+                            onChange={(geo) => updateFile(index, { geoTargeting: geo })}
+                          />
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Drop zone — always visible, add more files */}
+                  <div
+                    onDrop={handleDrop}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-all",
+                      dragOver ? "border-primary bg-accent/50" : "border-border hover:border-primary/40 hover:bg-secondary/20",
+                      uploading && "pointer-events-none opacity-60"
+                    )}>
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden"
+                      onChange={(e) => Array.from(e.target.files ?? []).forEach(uploadFile)} />
+                    {uploading ? (
+                      <><Loader2 className="h-5 w-5 animate-spin text-primary" /><span className="text-sm text-muted-foreground">Uploading…</span></>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Plus className="h-4 w-4 text-muted-foreground" />
+                          <Video className="h-4 w-4 text-muted-foreground" />
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium">
+                            {uploadedFiles.length === 0 ? "Drop files here or click to browse" : "Add more files"}
+                          </span>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Any number of videos or images · 200MB max per video · 10MB max per image
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {uploadedFiles.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground text-center">
+                      {uploadedFiles.length} file{uploadedFiles.length === 1 ? "" : "s"} · {uploadedFiles.length} ad variant{uploadedFiles.length === 1 ? "" : "s"} · £{(Number(dailyBudget) / uploadedFiles.length || 0).toFixed(2)}/day each
+                    </p>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -626,14 +745,14 @@ export function GenerationForm() {
         {/* ── Submit ── */}
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-muted-foreground max-w-sm">
-            Claude drafts 2 variants with different angles.
+            Claude writes copy for each variant.
             {creativeMode === "ai" ? " Gemini renders the creative." : " Your uploaded files are used as creative."}
             {" "}Nothing publishes until you approve.
           </p>
           <Button type="submit" disabled={submitting || uploading} size="lg" className="shrink-0">
             {submitting
               ? <><Loader2 className="h-4 w-4 animate-spin" />Drafting…</>
-              : <><Sparkles className="h-4 w-4" />Generate 2 variants</>}
+              : <><Sparkles className="h-4 w-4" />Generate variants</>}
           </Button>
         </div>
       </form>

@@ -13,12 +13,22 @@ const GeoLocationSchema = z.object({
   metaRegionId: z.string().optional(),
 });
 
+const GeoTargetingSchema = z.object({
+  locations: z.array(z.object({
+    id: z.string(), label: z.string(), lat: z.number(), lng: z.number(),
+    metaKey: z.string(), metaName: z.string(), metaCountryCode: z.string(),
+    metaRegionId: z.string().optional(),
+  })),
+  radiusMiles: z.number(),
+}).optional();
+
 const UploadedFileSchema = z.object({
   url: z.string().url(),
   type: z.enum(["image", "video"]),
   name: z.string(),
   size: z.number(),
   description: z.string().default(""),
+  geoTargeting: GeoTargetingSchema,  // per-file geo override
 });
 
 const InputSchema = z.object({
@@ -45,7 +55,7 @@ const InputSchema = z.object({
     gender: z.enum(["all", "male", "female"]),
   }).optional(),
   publishActive: z.boolean().optional().default(false),
-  uploadedFiles: z.array(UploadedFileSchema).max(2).optional().default([]),
+  uploadedFiles: z.array(UploadedFileSchema).optional().default([]),
 });
 
 export async function POST(req: Request) {
@@ -110,6 +120,7 @@ export async function POST(req: Request) {
             videoUrl: isVideo ? file!.url : null,
             useVideo: isVideo ?? false,
             creativeType: isVideo ? "VIDEO" : "IMAGE",
+            adGeoTargeting: file?.geoTargeting ?? null,
             status: "DRAFT",
           };
         }),
